@@ -20,8 +20,6 @@ const (
 // - Attempt 3+ (Final Requeue / Hard Cap): 45m
 func CalculateAdaptiveTimeout(attemptNumber int) time.Duration {
 	for _, envKey := range []string{
-		"AGENT_TASK_TIMEOUT",
-		"CUAN_TASK_TIMEOUT",
 		"AGENT_TASK_TIMEOUT_OVERRIDE",
 		"CUAN_TASK_TIMEOUT_OVERRIDE",
 	} {
@@ -33,35 +31,32 @@ func CalculateAdaptiveTimeout(attemptNumber int) time.Duration {
 	}
 
 	baseTimeout := DefaultBaseTimeout
-	if v := os.Getenv("AGENT_TASK_TIMEOUT_BASE"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			baseTimeout = d
-		}
-	} else if v := os.Getenv("CUAN_TASK_TIMEOUT_BASE"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			baseTimeout = d
+	for _, envKey := range []string{"AGENT_TASK_TIMEOUT_BASE", "CUAN_TASK_TIMEOUT_BASE"} {
+		if v := os.Getenv(envKey); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				baseTimeout = d
+				break
+			}
 		}
 	}
 
 	requeueTimeout := DefaultRequeueTimeout
-	if v := os.Getenv("AGENT_TASK_TIMEOUT_REQUEUE"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			requeueTimeout = d
-		}
-	} else if v := os.Getenv("CUAN_TASK_TIMEOUT_REQUEUE"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			requeueTimeout = d
+	for _, envKey := range []string{"AGENT_TASK_TIMEOUT_REQUEUE", "CUAN_TASK_TIMEOUT_REQUEUE"} {
+		if v := os.Getenv(envKey); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				requeueTimeout = d
+				break
+			}
 		}
 	}
 
 	maxCapTimeout := DefaultMaxCapTimeout
-	if v := os.Getenv("AGENT_TASK_TIMEOUT_MAX"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			maxCapTimeout = d
-		}
-	} else if v := os.Getenv("CUAN_TASK_TIMEOUT_MAX"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			maxCapTimeout = d
+	for _, envKey := range []string{"AGENT_TASK_TIMEOUT_MAX", "CUAN_TASK_TIMEOUT_MAX"} {
+		if v := os.Getenv(envKey); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				maxCapTimeout = d
+				break
+			}
 		}
 	}
 

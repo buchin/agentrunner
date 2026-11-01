@@ -184,6 +184,16 @@ func RunConfig(cfg SupervisorConfig, args []string, stdin io.Reader, stdout, std
 
 	taskTimeout := cfg.Timeout
 	if taskTimeout == 0 {
+		for _, envKey := range []string{"AGENT_TASK_TIMEOUT", "CUAN_TASK_TIMEOUT"} {
+			if v := os.Getenv(envKey); v != "" {
+				if d, err := time.ParseDuration(v); err == nil && d > 0 {
+					taskTimeout = d
+					break
+				}
+			}
+		}
+	}
+	if taskTimeout == 0 {
 		taskTimeout = CalculateAdaptiveTimeout(getAttemptNumber())
 	}
 	timeoutTimer := time.NewTimer(taskTimeout)
