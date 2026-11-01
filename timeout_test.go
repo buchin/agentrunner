@@ -7,6 +7,8 @@ import (
 )
 
 func TestCalculateAdaptiveTimeout(t *testing.T) {
+	os.Unsetenv("AGENT_TASK_TIMEOUT")
+	os.Unsetenv("CUAN_TASK_TIMEOUT")
 	os.Unsetenv("AGENT_TASK_TIMEOUT_OVERRIDE")
 	os.Unsetenv("CUAN_TASK_TIMEOUT_OVERRIDE")
 	os.Unsetenv("AGENT_TASK_TIMEOUT_BASE")

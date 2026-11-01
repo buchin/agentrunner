@@ -19,14 +19,16 @@ const (
 // - Attempt 2 (First Requeue): 35m
 // - Attempt 3+ (Final Requeue / Hard Cap): 45m
 func CalculateAdaptiveTimeout(attemptNumber int) time.Duration {
-	if v := os.Getenv("AGENT_TASK_TIMEOUT_OVERRIDE"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
-	}
-	if v := os.Getenv("CUAN_TASK_TIMEOUT_OVERRIDE"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
+	for _, envKey := range []string{
+		"AGENT_TASK_TIMEOUT",
+		"CUAN_TASK_TIMEOUT",
+		"AGENT_TASK_TIMEOUT_OVERRIDE",
+		"CUAN_TASK_TIMEOUT_OVERRIDE",
+	} {
+		if v := os.Getenv(envKey); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				return d
+			}
 		}
 	}
 
