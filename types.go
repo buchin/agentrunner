@@ -7,14 +7,21 @@ import (
 
 // ExecutionRequest represents the task execution parameters for an agent adapter.
 type ExecutionRequest struct {
-	TaskID       string            `json:"task_id,omitempty"`
-	Prompt       string            `json:"prompt"`
-	WorkingDir   string            `json:"working_dir,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Secrets      []string          `json:"secrets,omitempty"`
-	Timeout      time.Duration     `json:"timeout,omitempty"`
-	Model        string            `json:"model,omitempty"`
-	OutputFormat string            `json:"output_format,omitempty"` // "json" or "text"
+	// Args, when non-nil, are exact provider-specific arguments. They override
+	// the compatibility prompt/model/output-format argument builder.
+	Args []string `json:"args,omitempty"`
+	// UnsafeSkipPermissions explicitly opts into the legacy provider flag.
+	UnsafeSkipPermissions bool `json:"unsafe_skip_permissions,omitempty"`
+	// MaxOutputBytes bounds each captured stream; zero uses 1 MiB, maximum 16 MiB.
+	MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
+	TaskID         string            `json:"task_id,omitempty"`
+	Prompt         string            `json:"prompt"`
+	WorkingDir     string            `json:"working_dir,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Secrets        []string          `json:"secrets,omitempty"`
+	Timeout        time.Duration     `json:"timeout,omitempty"`
+	Model          string            `json:"model,omitempty"`
+	OutputFormat   string            `json:"output_format,omitempty"` // "json" or "text"
 }
 
 // TokenUsage holds token usage metrics for an agent run.
@@ -37,6 +44,8 @@ type StructuredOutput struct {
 
 // ExecutionResult represents the execution outcome of an agent run.
 type ExecutionResult struct {
+	StdoutTruncated  bool              `json:"stdout_truncated,omitempty"`
+	StderrTruncated  bool              `json:"stderr_truncated,omitempty"`
 	Status           string            `json:"status"` // SUCCESS, FAILED, CANCELED, TIMEOUT
 	ExitCode         int               `json:"exit_code"`
 	Stdout           string            `json:"stdout"`

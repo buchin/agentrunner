@@ -1,12 +1,10 @@
 package agentrunner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -35,16 +33,38 @@ func (a *CLIAdapter) Name() string {
 	return a.name
 }
 
-func (a *CLIAdapter) Version() (string, error) {
+// Version bounds the compatibility probe to five seconds.
+func (a *CLIAdapter) Version() (string, error) { return a.VersionContext(context.Background()) }
+func (a *CLIAdapter) VersionContext(ctx context.Context) (string, error) {
 	if a.binaryPath == "" {
 		return "", errors.New("binary path not specified")
 	}
-	cmd := exec.Command(a.binaryPath, "--version")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, a.binaryPath, "--version")
+	cmd.Env = executionEnvironment(nil)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			return KillProcessTree(cmd.Process.Pid)
+		}
+		return nil
+	}
+	cmd.WaitDelay = time.Second
+	output := &boundedOutput{limit: 64 << 10}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrWaitDelay) && cmd.Process != nil {
+			_ = KillProcessTree(cmd.Process.Pid)
+		}
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", fmt.Errorf("execute --version: %w", err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	value, _ := output.sanitized(nil)
+	return strings.TrimSpace(value), nil
 }
 
 // Execute runs the CLI agent with the provided execution parameters.
@@ -52,10 +72,31 @@ func (a *CLIAdapter) Execute(ctx context.Context, req ExecutionRequest) (*Execut
 	if a.binaryPath == "" {
 		return nil, errors.New("agent binary path is empty")
 	}
-	if req.Prompt == "" {
+	if req.Prompt == "" && req.Args == nil {
 		return nil, errors.New("prompt is required")
 	}
 
+	if !validEnvironment(req.Env) {
+		return nil, errors.New("invalid execution environment")
+	}
+	if req.MaxOutputBytes < 0 || req.MaxOutputBytes > MaxOutputBytes {
+		return nil, errors.New("max output bytes must be between 0 and 16 MiB")
+	}
+	if req.Timeout < 0 {
+		return nil, errors.New("timeout must not be negative")
+	}
+	if req.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
+		defer cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	limit := req.MaxOutputBytes
+	if limit == 0 {
+		limit = DefaultMaxOutputBytes
+	}
 	outputFormat := req.OutputFormat
 	if outputFormat == "" {
 		outputFormat = "json"
@@ -64,11 +105,16 @@ func (a *CLIAdapter) Execute(ctx context.Context, req ExecutionRequest) (*Execut
 	args := []string{
 		"-p", req.Prompt,
 		"--output-format", outputFormat,
-		"--dangerously-skip-permissions",
 	}
 
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
+	}
+
+	if req.Args != nil {
+		args = append([]string{}, req.Args...)
+	} else if req.UnsafeSkipPermissions {
+		args = append(args, "--dangerously-skip-permissions")
 	}
 
 	cmdCtx, cancel := context.WithCancel(context.Background())
@@ -79,16 +125,13 @@ func (a *CLIAdapter) Execute(ctx context.Context, req ExecutionRequest) (*Execut
 		cmd.Dir = req.WorkingDir
 	}
 
-	env := os.Environ()
-	for k, v := range req.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-	cmd.Env = env
+	cmd.Env = executionEnvironment(req.Env)
 
 	// Setup process group for clean cancellation
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = time.Second
 
-	var stdoutBuf, stderrBuf bytes.Buffer
+	stdoutBuf, stderrBuf := boundedOutput{limit: limit}, boundedOutput{limit: limit}
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
@@ -122,15 +165,19 @@ func (a *CLIAdapter) Execute(ctx context.Context, req ExecutionRequest) (*Execut
 		waitErr = <-doneChan
 
 	case waitErr = <-doneChan:
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			_ = KillProcessTree(pid)
+		}
 	}
 
 	duration := time.Since(startTime)
 	peakRSS := monitor.Stop()
 
-	safeStdout := MaskSecrets(stdoutBuf.String(), req.Secrets)
-	safeStderr := MaskSecrets(stderrBuf.String(), req.Secrets)
+	safeStdout, stdoutTruncated := stdoutBuf.sanitized(req.Secrets)
+	safeStderr, stderrTruncated := stderrBuf.sanitized(req.Secrets)
 
 	result := &ExecutionResult{
+		StdoutTruncated: stdoutTruncated, StderrTruncated: stderrTruncated,
 		Duration:     duration,
 		PeakRSSBytes: peakRSS,
 		Stdout:       safeStdout,
@@ -164,7 +211,7 @@ func (a *CLIAdapter) Execute(ctx context.Context, req ExecutionRequest) (*Execut
 	}
 
 	// Parse structured JSON output if present
-	if outputFormat == "json" && len(safeStdout) > 0 {
+	if outputFormat == "json" && !stdoutTruncated && len(safeStdout) > 0 {
 		var structured StructuredOutput
 		trimmed := strings.TrimSpace(safeStdout)
 		if idx := strings.Index(trimmed, "{"); idx != -1 {
