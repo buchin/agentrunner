@@ -179,3 +179,32 @@ Targeted test suite completes in under 1 second.
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+## Execution boundary changes (next release)
+
+The CLI adapter now inherits only `PATH`, locale, timezone, and terminal settings.
+Set the account's `HOME`, credential paths, and any required provider variables
+explicitly in `ExecutionRequest.Env`. Ambient application/provider tokens and SSH
+agents are not passed through. This affects the CLI adapter; the low-level
+supervisor re-exec entrypoint still expects its caller to construct an appropriate
+control-plane environment. Do not substitute it for an account-isolation layer.
+
+Each stdout/stderr capture is limited to 1 MiB by default. Set `MaxOutputBytes` to
+a positive per-stream limit up to 16 MiB. Writes keep draining after the limit;
+`StdoutTruncated` and `StderrTruncated` identify incomplete evidence. Structured
+output should not be trusted when capture was truncated. Known secrets are also
+masked when capture ends partway through one. File/stream delivery is a separate
+consumer concern rather than unlimited in-memory capture.
+
+Use `Args` for an exact provider-specific argument list (an empty, non-nil list is
+valid). A nil list retains the prompt/model/output-format compatibility builder,
+without automatically bypassing permissions. That provider-specific behavior
+requires explicit `UnsafeSkipPermissions: true`; custom `Args` remain entirely
+under the caller's control. `Timeout` is enforced in addition to the caller's
+context deadline. `Version()` has a five-second deadline; `VersionContext(ctx)`
+can impose an earlier limit and caps probe output to 64 KiB.
+
+These are intentional behavior changes for consumers upgrading from v0.1.2.
+Cuan must retain its own task authorization, saved execution deadline, account
+profile isolation, lease fencing, atomic completion, and evidence validation.
+The library's SUCCESS result is a process outcome, not acceptance of a task.
