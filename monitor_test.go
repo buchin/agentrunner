@@ -9,6 +9,9 @@ import (
 )
 
 func TestReadRSSAndMonitor(t *testing.T) {
+	if _, err := os.Stat("/proc"); os.IsNotExist(err) {
+		t.Skip("skipping on platforms without /proc filesystem")
+	}
 	pid := os.Getpid()
 	rss := ReadRSS(pid)
 	if rss <= 0 {

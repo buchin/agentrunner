@@ -155,7 +155,7 @@ func RunConfig(cfg SupervisorConfig, args []string, stdin io.Reader, stdout, std
 
 	// The agent cannot survive an abruptly killed supervisor. LockOSThread keeps
 	// the Linux parent-death binding tied to this live supervisor thread.
-	child.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL, Setpgid: true}
+	child.SysProcAttr = taskSysProcAttr()
 
 	if err := child.Start(); err != nil {
 		fmt.Fprintln(stderr, "The task agent could not start.")
